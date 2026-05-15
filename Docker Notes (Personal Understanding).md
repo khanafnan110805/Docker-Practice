@@ -437,3 +437,371 @@ Example:
 Both can run together using separate containers.
 
 That’s the actual power of Docker.
+
+# Docker Registry
+
+Till now everything was local:
+
+- local Node app
+- local MongoDB
+- local Docker containers
+
+But in real projects we need to:
+
+- share images
+- deploy applications
+- store images online
+- run apps on servers
+
+So Docker Registry is basically:
+
+> online storage for Docker images
+
+Examples:
+
+- Docker Hub
+- AWS ECR
+- GitHub Container Registry
+
+---
+
+# Important Difference
+
+## GitHub
+
+stores SOURCE CODE
+
+Example:
+
+- server.js
+- index.html
+- package.json
+
+---
+
+## Docker Registry
+
+stores BUILT DOCKER IMAGES
+
+Meaning:
+
+- Node installed
+- dependencies installed
+- app already packaged
+- ready to run
+
+---
+
+# Docker Image Naming Format
+
+```txt
+registryDomain/imageName:tag
+```
+
+Examples:
+
+```bash
+docker pull mongo:4.2
+```
+
+same as:
+
+```bash
+docker pull docker.io/library/mongo:4.2
+```
+
+Docker automatically assumes Docker Hub if registry not specified.
+
+---
+
+# AWS ECR Example
+
+```txt
+664574038682.dkr.ecr.eu-central-1.amazonaws.com/my-app:1.0
+```
+
+Breakdown:
+
+```txt
+664574038682.dkr.ecr.eu-central-1.amazonaws.com
+```
+
+= registry domain
+
+```txt
+my-app
+```
+
+= image name
+
+```txt
+1.0
+```
+
+= tag/version
+
+---
+
+# Build Image
+
+Create Docker image locally:
+
+```bash
+docker build -t my-app:1.0 .
+```
+
+Check images:
+
+```bash
+docker images
+```
+
+---
+
+# Why Tagging Is Needed
+
+If we directly do:
+
+```bash
+docker push my-app:1.0
+```
+
+Docker thinks:
+
+> push to Docker Hub
+
+But for AWS ECR we must attach AWS repository name to image.
+
+So we TAG image.
+
+---
+
+# Tag Docker Image For AWS ECR
+
+```bash
+docker tag my-app:1.0 664574038682.dkr.ecr.eu-central-1.amazonaws.com/my-app:1.0
+```
+
+This DOES NOT duplicate image physically.
+
+It just gives:
+
+- another name
+- another destination reference
+
+Now image has:
+
+- local name
+- AWS ECR name
+
+Check:
+
+```bash
+docker images
+```
+
+You will see both names.
+
+---
+
+# Push Image To AWS ECR
+
+```bash
+docker push 664574038682.dkr.ecr.eu-central-1.amazonaws.com/my-app:1.0
+```
+
+Now image is uploaded to AWS registry.
+
+---
+
+# Updating Application
+
+If code changes:
+
+## Build new version
+
+```bash
+docker build -t my-app:1.1 .
+```
+
+---
+
+## Tag new version
+
+```bash
+docker tag my-app:1.1 664574038682.dkr.ecr.eu-central-1.amazonaws.com/my-app:1.1
+```
+
+---
+
+## Push new version
+
+```bash
+docker push 664574038682.dkr.ecr.eu-central-1.amazonaws.com/my-app:1.1
+```
+
+Now AWS repository will contain:
+
+- my-app:1.0
+- my-app:1.1
+
+---
+
+# Deployment Concept
+
+Now image exists online in registry.
+
+Server can now PULL image and run it.
+
+Flow:
+
+```txt
+Code
+↓
+Docker Build
+↓
+Docker Image
+↓
+Push to AWS ECR
+↓
+Server pulls image
+↓
+Container runs
+```
+
+---
+
+# Adding App To docker-compose
+
+Add Node app service inside mongo.yaml
+
+```yaml
+my-app:
+  image: 664574038682.dkr.ecr.eu-central-1.amazonaws.com/my-app:1.1
+  ports:
+    - 3000:3000
+```
+
+Now compose file manages:
+
+- MongoDB
+- mongo-express
+- Node app
+
+---
+
+# Start Everything Together
+
+```bash
+docker compose -f mongo.yaml up
+```
+
+This starts:
+
+- mongo
+- mongo-express
+- my-app
+
+---
+
+# Important MongoDB Change
+
+When app runs INSIDE Docker network:
+
+❌ Wrong:
+
+```js
+"mongodb://admin:password@localhost:27017/admin";
+```
+
+Because localhost inside container means:
+
+> the container itself
+
+---
+
+✅ Correct:
+
+```js
+"mongodb://admin:password@mongodb:27017/admin";
+```
+
+Because:
+
+- mongodb = service/container name
+- Docker network resolves container names internally
+
+---
+
+# Docker Volumes
+
+Containers are temporary.
+
+If MongoDB container gets deleted:
+
+- all data disappears
+
+Volumes solve this.
+
+---
+
+# Docker Volume Purpose
+
+Used for:
+
+- databases
+- uploads
+- persistent storage
+- stateful apps
+
+---
+
+# Volume Example In Compose
+
+```yaml
+volumes:
+  - mongo-data:/data/db
+```
+
+Docker stores database outside container filesystem.
+
+So:
+
+- container can die
+- data still survives
+
+---
+
+# Important Understanding
+
+Without volume:
+
+```txt
+Container deleted
+→ database deleted
+```
+
+With volume:
+
+```txt
+Container deleted
+→ database still safe
+```
+
+---
+
+# Overall Production Flow
+
+```txt
+Write Code
+↓
+Build Docker Image
+↓
+Push Image To Registry
+↓
+Deploy On Server
+↓
+Use Volumes For Persistent Data
+↓
+Application Runs In Production
+```
